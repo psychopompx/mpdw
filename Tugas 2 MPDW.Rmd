@@ -1,0 +1,343 @@
+---
+title: '#2 Praktikum MPDW'
+author: "Lusi Oktaviani"
+date: "2024-09-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest) #digunakan untuk uji formal pendeteksian autokorelasi
+library(orcutt) #untuk membuat model regresi Cochrane-Orcutt
+library(HoRM) #untuk membuat model regresi Hildreth-Lu
+```
+
+```{r}
+library(readxl)
+data <- read_xls("C:\\Users\\Lusi Oktaviani\\OneDrive\\Statistics and Data Science\\Semester 5\\MPDW\\Praktikum\\data 2.xls", sheet = "Sheet1")
+data
+data$Tahun <- as.numeric(data$Tahun)
+data$GDP <- as.numeric(data$GDP)
+data
+
+```
+# Eksplorasi Data
+
+Sebelum melakukan regresi, akan diperlihatkan *plot time-series* dari DGB dari negara  IBDR only Periode 1960-2023
+```{r}
+#Membentuk objek time series
+data.ts<-ts(data$GDP)
+data.ts
+
+#Membuat plot time series
+ts.plot(data.ts, xlab="Time Period ", ylab="DGB", main= "Time Series Plot of GDP")
+points(data.ts)
+```
+
+##Metode DMA
+Selanjutnya akan dilakukan ramalan dan pemulusan dengan metode DMA dan DES karena terlihat pada plot di atas menunjukkan adanya trend.
+```{r}
+dt.sma <- SMA(data.ts, n=4)
+dma <- SMA(dt.sma, n = 4)
+At <- 2*dt.sma - dma
+Bt <- 2/(3-1)*(dt.sma - dma)
+dt.dma<- At+Bt
+dt.ramal<- c(NA, dt.dma)
+
+t = 1:5
+f = c()
+
+for (i in t) {
+  f[i] = At[length(At)] + Bt[length(Bt)]*(i)
+}
+```
+
+```{r}
+dt.gab <- cbind(aktual = c(data.ts,rep(NA,7)), 
+                pemulusan1 = c(dt.sma,rep(NA,7)),
+                pemulusan2 = c(dt.dma, rep(NA,7)),
+                At = c(At, rep(NA,7)), 
+                Bt = c(Bt,rep(NA,7)),
+                ramalan = c(dt.ramal, f[-1]))
+dt.gab
+```
+
+###Plot DMA
+```{r}
+#Plot time series
+ts.plot(dt.gab[,1], xlab="Time Period ", ylab="GDP", 
+        main= "DMA N=4 Data GDP")
+points(dt.gab[,1])
+points(dt.gab[,3])
+points(dt.gab[,6])
+lines(dt.gab[,3],col="green",lwd=2)
+lines(dt.gab[,6],col="red",lwd=2)
+legend("topleft",c("data aktual","data pemulusan","data peramalan"), 
+       lty=8, col=c("black","green","red"), cex=0.8)
+```
+
+Selanjutnya akan dilihat keakuratan dari metode DMA
+
+```{r}
+#Menghitung nilai keakuratan
+error.dma = data.ts-dt.ramal[1:length(data.ts)]
+SSE.dma = sum(error.dma[8:length(data.ts)]^2)
+MSE.dma = mean(error.dma[8:length(data.ts)]^2)
+MAPE.dma = mean(abs((error.dma[8:length(data.ts)]/data.ts[8:length(data.ts)])*100))
+
+akurasi.dma <- matrix(c(SSE.dma, MSE.dma, MAPE.dma))
+row.names(akurasi.dma)<- c("SSE", "MSE", "MAPE")
+colnames(akurasi.dma) <- c("Akurasi m = 3")
+akurasi.dma
+```
+
+Selanjutnya akan digunakan metode *Double Exponential Smoothing* dengan cara sebagai berikut.
+
+Pertama akan data akan dibagi menjadi data *training* dan data *testing*.
+
+```{r}
+#membagi training dan testing
+training<-data[1:52,2]
+testing<-data[53:64,2]
+
+#data time series
+training.ts<-ts(training)
+testing.ts<-ts(testing,start=53)
+
+#eksplorasi data
+plot(data.ts, col="red",main="Plot semua data")
+points(data.ts)
+
+plot(training.ts, col="blue",main="Plot data training")
+points(training.ts)
+```
+
+Selanjutnya akan dilakukan pemulusan dengan DES, kali ini langsung dicari lambda dan gamma optimum sebagai berikut. Nilai lambda dan gamma optimum dapat dilihat pada smoothing parameters alpha untuk nilai lambda dan beta untuk nilai gamma.
+
+```{r}
+#Lamda dan gamma optimum
+des.opt<- HoltWinters(training.ts, gamma = FALSE)
+des.opt
+plot(des.opt)
+legend("topleft", c("Data Aktual", "Peramalan"), col = c("black", "red"), 
+       lty = c(1,1))
+
+
+#ramalan
+ramalandesopt<- forecast(des.opt, h=5)
+ramalandesopt
+```
+
+Selanjutnya akan dicari akurasi dari metode DES.
+
+```{r}
+ssedes.train<-des.opt$SSE
+msedes.train<-ssedes.train/length(training.ts)
+sisaandes<-ramalandesopt$residuals
+head(sisaandes)
+
+mapedes.train <- sum(abs(sisaandes[4:length(training.ts)]/training.ts[3:length(training.ts)])*100)/length(training.ts)
+
+akurasides.opt <- matrix(c(ssedes.train,msedes.train,mapedes.train))
+row.names(akurasides.opt)<- c("SSE", "MSE", "MAPE")
+colnames(akurasides.opt) <- c("Akurasi lamda dan gamma optimum")
+akurasides.opt
+```
+
+```{r}
+#Akurasi data testing
+selisihdesopt<-ramalandesopt$mean-testing.ts
+selisihdesopt
+```
+
+
+```{r}
+SSEtestingdesopt<-sum(selisihdesopt^2)
+SSEtestingdesopt<-SSEtestingdesopt/length(testing.ts)
+MAPEtestingdesopt<-sum(abs(selisihdesopt/testing.ts)*100)/length(testing.ts)
+
+akurasiDesTesting <- matrix(c(SSEtestingdesopt,SSEtestingdesopt,MAPEtestingdesopt))
+row.names(akurasiDesTesting)<- c("SSE", "MSE", "MAPE")
+colnames(akurasiDesTesting) <- c("Akurasi lamda dan gamma optimum")
+akurasiDesTesting
+```
+
+Setelah didapatkan nilai akurasi untuk metode DMA dan DES, selanjutnya akan dibandingkan keakuratan antar metode keduanya.
+
+```{r}
+cbind(akurasi.dma, akurasides.opt)
+```
+
+Berdasarkan perbandingan akurasi tersebut, terlihat nilai SSE, MSE, dan MAPE metode DES lebih kecil dibandingkan dengan metode DMA. Oleh karena itu, metode peramalan dan pemulusan yang terbaik antara keduanya adalah dengan metode DES.
+
+Setelah melakukan peramalan, data yang telah dimasukkan kemudian dieksplorasi. Eksplorasi pertama yang dilakukan adalah dengan menggunakan *scatter plot*.
+
+```{r}
+#Eksplorasi Data
+#Pembuatan Scatter Plot
+plot(data$Tahun, data$GDP, pch = 20, col = "blue",
+     main = "Scatter Plot Tahun vs Nilai GDP",
+     xlab = "Tahun",
+     ylab = "Nilai GDP")
+#Menampilkan Nilai Korelasi
+cor(data$Tahun, data$GDP)
+```
+
+Berdasarkan scatter plot di atas, terlihat adanya hubungan / korelasi positif antara peubah tahun dengan nilai GDP, terlihat titik-titik pada plot yang naik ke arah kanan atas. Hal tersebut juga diperkuat dengan hasil perhitungan aplikasi `R` di mana didapatkan nilai korelasi sebesar $0.8678664$.
+
+Setalah mengetahui adanya hubungan antar dua peubah, maka model regresi dapat ditentukan.
+
+# Regresi
+
+```{r}
+#Pembuatan Model Regresi
+#model regresi
+model<- lm(GDP~Tahun, data = data)
+summary(model)
+```
+
+Model yang dihasilkan adalah $$y_i=-1.050e+15 + 5.320e+11x_t$$ Berdasarkan ringkasan model dapat diketahui bahwa hasil uji F memiliki *p-value* \< $\alpha$ (5%). Artinya, minimal terdapat satu variabel yang berpengaruh nyata terhadap model. Hasil uji-t parsial kedua parameter regresi, yaitu intersep dan koefisien regresi juga menunjukkan hal yang sama, yaitu memiliki *p-value* \< $\alpha$ (5%) sehingga nyata dalam taraf 5%. Selanjutnya dapat dilihat juga nilai $R^2=0.7492$. Artinya, sebesar 74.92% keragaman nilai IPM dapat dijelaskan oleh peubah tahun. Hasil ini menunjukkan hasil yang bagus, seolah mendapatkan hasil terbaik. Namun, kita perlu melakukan uji terhadap sisaannya seperti berikut ini.
+
+```{r}
+#sisaan dan fitted value
+sisaan<- residuals(model)
+fitValue<- predict(model)
+
+#Diagnostik dengan eksploratif
+qqnorm(sisaan)
+qqline(sisaan, col = "steelblue", lwd = 2)
+plot(fitValue, sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Fitted Values", main = "Sisaan vs Fitted Values")
+abline(a = 0, b = 0, lwd = 2)
+hist(sisaan, col = "steelblue")
+plot(seq(sisaan), sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Order", main = "Sisaan vs Order")
+lines(seq(sisaan), sisaan, col = "red")
+abline(a = 0, b = 0, lwd = 2)
+```
+
+Dua plot di samping kiri digunakan untuk melihat apakah sisaan menyebar normal. Normal Q-Q Plot di atas menunjukkan bahwa sisaan cenderung menyebar normal, tetapi histogram dari sisaan tidak menunjukkan demikian. Selanjutnya, dua plot di samping kanan digunakan untuk melihat autokorelasi. Plot Sisaan vs *Fitted Value* dan Plot Sisaan vs *Order* menunjukkan adanya pola pada sisaan. Untuk lebih lanjut akan digunakan uji formal melihat normalitas sisaan dan plot ACF dan PACF untuk melihat apakah ada autokorelasi atau tidak.
+
+```{r}
+#Melihat Sisaan Menyebar Normal/Tidak
+#H0: sisaan mengikuti sebaran normal
+#H1: sisaan tidak mengikuti sebaran normal
+shapiro.test(sisaan)
+ks.test(sisaan, "pnorm", mean=mean(sisaan), sd=sd(sisaan))
+```
+
+Berdasarkan uji formal Saphiro-Wilk didapatkan nilai dan Kolmogorov-Smirnov didapatkan nilai *p-value* \> $\alpha$ (5%). Artinya, cukup bukti untuk menyatakan sisaan berdistribusi normal.
+
+```{r}
+#ACF dan PACF identifikasi autokorelasi
+par(mfrow = c(1,2))
+acf(sisaan)
+pacf(sisaan)
+```
+
+Berdasarkan plot ACF dan PACF, terlihat semua di luar rentang batas dan terdapat lag yang signifikan. Namun, untuk lebih memastikan akan dilakukan uji formal dengan uji Durbin Watson.
+
+```{r}
+#Deteksi autokorelasi dengan uji-Durbin Watson
+#H0: tidak ada autokorelasi
+#H1: ada autokorelasi
+dwtest(model)
+```
+
+dengan nilai p-value < 0.05 dapat disimpulkan bahwa tolak H0, cukup bukti mengatakan adanya autokorelasi. Oleh karena itu, diperlukan penangan autokorelasi. Penanganan yang akan digunakan menggunakan dua metode, yaitu Cochrane-Orcutt dan Hildret-Lu.
+
+# Penanganan Autokorelasi
+
+## Metode Cochrane-Orcutt
+
+Penanganan metode Cochrane-Orcutt dapat dilakukan dengan bantuan packages Orcutt pada aplikasi `R` maupun secara manual. Berikut ini ditampilkan cara menggunakan bantuan `library` *packages* `Orcutt`.
+
+```{r}
+#Penanganan Autokorelasi Cochrane-Orcutt
+modelCO<-cochrane.orcutt(model,max.iter = 1000)
+modelCO
+```
+koefisien model tidak dapat dihitung karena proses iterasi tidak mencapai konvergensi. Ini berarti model tidak dapat menemukan solusi yang stabil untuk parameter yang diinginkan.
+
+
+## Metode Hildreth-Lu
+
+Penanganan kedua adalah menggunakan metode Hildreth-Lu. Metode ini akan mencari nilai SSE terkecil dan dapat dicari secara manual maupun menggunakan packages. Jika menggunakan packages, gunakan `library` *packages* `HORM`.
+
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x <- model.matrix(model)[,-1]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x <- x[t]-r*x[t-1]
+  
+  return(lm(y~x))
+}
+
+#Pencariab rho yang meminimumkan SSE
+r <- c(seq(0.1,1, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+
+
+```{r}
+#Rho optimal di sekitar 0.4
+rOpt <- seq(0.1, 1, by= 0.01)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+```
+
+
+```{r}
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.9, y=3.788710e+26, labels = "rho=0.9", cex = 0.8)
+```
+
+
+```{r}
+#Model terbaik
+modelHL <- hildreth.lu.func(0.9, model)
+summary(modelHL)
+
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-0.9), "+", coef(modelHL)[2],"x", sep = "")
+```
+
+Setelah dilakukan tranformasi balik, didapatkan model dengan metode Hildreth-Lu sebagai berikut. $$y_i=-1.637e+14+8.256e+11x_t$$
+
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+
+
+Terakhir, akan dibandingkan nilai SSE dari ketiga metode (metode awal, metode Cochrane-Orcutt, dan Hildreth-Lu).
+
+```{r}
+#Perbandingan
+sseModelawal <- anova(model)$`Sum Sq`[-1]
+sseModelHL <- anova(modelHL)$`Sum Sq`[-1]
+mseModelawal <- sseModelawal/length(data$GDP)
+mseModelHL <- sseModelHL/length(data$GDP)
+akurasi <- matrix(c(sseModelawal,sseModelHL,
+                    mseModelawal,mseModelHL),nrow=2,ncol=3,byrow = T)
+colnames(akurasi) <- c("Model Awal", "Model Cochrane-Orcutt", "Model Hildreth-Lu")
+row.names(akurasi) <- c("SSE","MSE")
+akurasi
+```
+Berdasarkan hasil tersebut dapat diketahui bahwa hasil penanganan autokorelasi dengan metode Cochrane-Orcutt dan Hildreth-Lu telah berhasil terbukti dapat mengurangi nilai SSE dan lebih baik dibandingkan model awal ketika autokorelasi masih terjadi, yaitu sebesar 2.025675e+27 menjadi 8.844317e+25 pada model Cochrane-Orcutt dan sebesar 3.165118e+25 pada model Hildreth-Lu.
+
+Akan tetapi penanganan autokorelasi masih terjadi, sehingga diperlukan metode yang lebih lanjut.
+
+
