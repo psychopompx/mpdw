@@ -1,0 +1,101 @@
+---
+title: "UPRAK MPDW"
+author: "Lusi Oktaviani"
+date: "2024-10-10"
+output: html_document
+---
+
+```{r}
+library("forecast")
+library("graphics")
+library("TTR")
+library("TSA")
+library(readxl)
+```
+
+```{r}
+dt <- read_xlsx("C:\\Users\\User-066\\Downloads\\dataset_ujian_praktikum.xlsx")
+```
+## Eksplorasi Data
+```{r}
+View(dt)
+str(dt)
+dim(dt)
+head(dt)
+```
+
+```{r}
+train <- dt[1:480,]
+test <- dt[181:140,]
+train.ts <- ts(train$Voltage)
+test.ts <- ts(test$Voltage)
+```
+```{r}
+plot(train.ts, col="blue",main="Plot data latih")
+points(train.ts)
+```
+```{r}
+plot(test.ts, col="red",main="Plot data uji")
+points(test.ts)
+```
+
+```{r}
+acf(train.ts)
+```
+```{r}
+tseries::adf.test(train.ts)
+```
+
+```{r}
+train.diff<-diff(train.ts,differences = 1) 
+plot.ts(train.diff, lty=1, xlab="Periode", ylab="Data Difference 1 Nilai", main="Plot Difference Nilai")
+```
+
+```{r}
+train.diff2<-diff(train.ts,differences = 2) 
+plot.ts(train.diff2, lty=1, xlab="Periode", ylab="Data Difference 2 Nilai", main="Plot Difference Nilai")
+```
+
+```{r}
+acf(train.diff2)
+```
+```{r}
+tseries::adf.test(train.diff2)
+```
+
+## Identifikasi model
+```{r}
+acf(train.diff2)
+```
+Berdasarkan plot tersebut, terlihat bahwa plot ACF cenderung cuts off pada lag ke 1, sehingga jika plot PACF dianggap tails of, maka model tentatifnya adalah ARIMA(0,2,1).
+```{r}
+pacf(train.diff2)
+```
+
+```{r}
+eacf(train.diff2)
+```
+## Pendugaan Model tentatif
+```{r}
+model1.da=Arima(train.diff, order=c(0,2,1),method="ML")
+summary(model1.da) 
+lmtest::coeftest(model1.da) 
+```
+
+```{r}
+model2.da=Arima(train.diff, order=c(0,2,2),method="ML")
+summary(model2.da) 
+lmtest::coeftest(model2.da) 
+```
+
+```{r}
+model3.da=Arima(train.diff, order=c(1,2,1),method="ML")
+summary(model3.da) 
+lmtest::coeftest(model3.da) 
+```
+Berdasarkan pendugaan parameter di atas, nilai AIC terkecil dimiliki oleh model 2, yaitu model ARIMA(0,2,2)
+AIC=1404.27 
+
+## Analisis Sisaan
+
+
